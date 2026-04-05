@@ -93,43 +93,15 @@ if __name__ == "__main__":
         )
         )
 
-    '''
-        stop = {
-        TRAINING_ITERATION: args.stop_iters,
-        NUM_ENV_STEPS_SAMPLED_LIFETIME: args.stop_timesteps,
-        f"{ENV_RUNNER_RESULTS}/{EPISODE_RETURN_MEAN}": args.stop_reward,
-    }
-    
-    def custom_stopping_criteria(trial_id, result):
-    # Check the latest step rewards from the "info" dictionary
-        if "hist_stats" in result:
-            step_rewards = result["hist_stats"].get("step_reward", [])
-            if any(reward >= 10 for reward in step_rewards):  # Example threshold
-                return True
-        return False
-
-    stop_criteria = {
-    "episodes_total": 1000  # Stop after 100 episodes
-    }
-    tuner = tune.Tuner(
-    PPOTrainer,
-    param_space=config.to_dict(),
-    run_config=air.RunConfig(stop=stop_criteria, verbose=1),
-    )
-    
-    results = tuner.fit()
-    print(results)
-    '''
-    
-    checkpoint_path='/home/master/algorithm_checkpoint_lstm' #change to your checkpoint path
+    CHECKPOINT_PATH = '/home/master/algorithm_checkpoint_lstm'
     trainer = PPO(config=config)
-    trainer.restore(checkpoint_path)
-    print(f"Restored from checkpoint: {checkpoint_path}")
-    
+    trainer.restore(CHECKPOINT_PATH)
+    print(f"Restored from checkpoint: {CHECKPOINT_PATH}")
+
     for i in range(100):
         result = trainer.train()
-        checkpoint_path = trainer.save('/home/master/algorithm_checkpoint_lstm')
-        print(f"Checkpoint saved at {checkpoint_path}")
+        saved = trainer.save(CHECKPOINT_PATH)
+        print(f"Checkpoint saved at {saved}")
         break
 
     ray.shutdown()

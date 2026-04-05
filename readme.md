@@ -1,55 +1,96 @@
 # Automatic Multi-Agent Reinforcement Learning Telecom Radio Planner
 
-This repository contains the implementation of an open-source RF planner that leverages multi-agent reinforcement learning to optimize the placement and parameters of LTE cells. The project combines AI techniques with telecommunications to provide a cost-effective and efficient solution for radio frequency planning.
+An open-source LTE radio frequency planner that uses multi-agent reinforcement learning to automatically determine the optimal placement and parameters for cell towers — replacing expensive proprietary RF planning tools.
 
-Explore the code, logic, and tools used to achieve optimal RF planning in this repository.
+> Final Year Project (FYP) — Engineering Degree
 
-This project was done as part my engineering degree final year project. 
+---
 
 ## Abstract
 
 RF planning is the process of assigning frequencies, transmitter locations, and parameters to a wireless communications system to evaluate coverage and capacity. This process is usually performed by radio planning engineers or using automatic planning tools, which are either expensive or inefficient.
 
-In this work, we provide an open-source RF planner that leverages multi-agent reinforcement learning to determine the optimal placement and parameters of LTE cells. This project contains the logic and code behind it.
+This project provides an open-source RF planner that leverages multi-agent reinforcement learning to determine the optimal placement and parameters of LTE cells.
 
 With the rapid advancement of technology, the increasing number of mobile devices, and the growth of the IoT field, more devices require reliable internet access. These devices demand excellent coverage and high bandwidth to ensure seamless connectivity. Careful radio frequency planning is essential to meet these needs.
 
-RF planning involves assigning frequencies, transmitter locations, and parameters to evaluate coverage and capacity. It consists of two main phases:
-1. **Initial Radio Link Budgeting**: Approximating the coverage area using statistical models.
-2. **Detailed RF Propagation Modeling**: Determining the number of sites, site locations and heights, antenna directions and downtilts, neighbor cells, and mobility parameters (handover and cell re-selection) for each site.
+RF planning consists of two main phases:
+1. **Initial Radio Link Budgeting** — approximating the coverage area using statistical models.
+2. **Detailed RF Propagation Modeling** — determining the number of sites, site locations and heights, antenna directions and downtilts, neighbor cells, and mobility parameters for each site.
 
-Traditionally, this process is carried out by radio experts or through expensive proprietary software. Our project aims to address this challenge for new mobile operators by providing an efficient and cost-effective solution.
+Traditionally, this process is carried out by radio experts or through expensive proprietary software. This project aims to address this challenge for new mobile operators by providing an efficient and cost-effective open-source solution.
 
-### Proposed Solution
+---
 
-To solve this problem, we divided the area of interest into hexagonal clusters of 7 LTE cells of 3 sectors, and each sector is served by a different antenna. We also used soft frequency reuse (SFR) logic and implemented it in our code. Finally, using reinforcement learning, specifically multi-agent reinforcement learning, we developed an algorithm to calculate the optimal placement and parameters for antennas and cells (location, height, power) within each cluster.
-Evrything used in this project is open-source
+## Proposed Solution
+
+The area of interest is divided into **hexagonal clusters of 7 LTE cells with 3 sectors each**, where every sector is served by a dedicated antenna. Soft Frequency Reuse (SFR) logic is implemented to reduce inter-cell interference.
+
+Using multi-agent reinforcement learning, the system learns the optimal antenna placement, height, and transmit power within each cluster.
+
+![LTE Hexagonal Cluster](<images/Lte cluster.png>)
+
+---
 
 ## Prerequisites
 
-To run this project, ensure you have the following installed and set up:
+### 1. GRASS GIS
+A powerful open-source GIS used for spatial data management and RF propagation analysis. You will need to prepare the following maps for your target area:
 
-1. **GRASS GIS**: A powerful open-source geographical information system used for spatial data management and analysis.  
-    You also need to set up your geolocation with the following maps:  
-    - **DEM Map**: A Digital Elevation Model to represent terrain elevation.  
-    - **Population Map**: To analyze coverage and capacity based on population density.  
-    - **Clutter Map**: To account for land use and obstacles affecting signal propagation.  
-    Ensure these maps are prepared and integrated into your environment before proceeding.
+| Map | Description |
+|-----|-------------|
+| **DEM Map** | Digital Elevation Model — represents terrain elevation |
+| **Population Map** | Population density — used for capacity analysis |
+| **Clutter Map** | Land use and obstacles — affects signal propagation |
 
-2. **Raplat**: A radio propagation tool integrated with GRASS GIS for RF planning.  
-3. **Ubuntu or WSL (Windows Subsystem for Linux)**: A Linux environment is required to run the tools and scripts effectively.  
-4. **Antenna Files**: Example antenna configuration files are included in the `antennas` folder.  
-5. **Python Dependencies**: Install the required Python libraries for reinforcement learning by running:  
-    ```bash
-    pip install -r requirements.txt
-    ```  
-    The `requirements.txt` file includes essential packages like `gym` and `ray`. Ensure you have Python installed before proceeding.
+**Lebanon example maps used in this project:**
 
+![Lebanon DEM](<images/Lebanon DEM.png>)
+*Digital Elevation Model*
 
-### Running the reinforcement learning Application
+![Lebanon Population](<images/Lebanon population.png>)
+*Population density map*
 
-Below is an example command to execute the application:
+![Lebanon Clutter](<images/Lebanon clutter.png>)
+*Clutter/land-use map*
 
+### 2. Raplat
+A radio propagation tool integrated with GRASS GIS for RF coverage simulation.
+
+### 3. Ubuntu or WSL (Windows Subsystem for Linux)
+A Linux environment is required to run GRASS GIS and Raplat.
+
+### 4. Antenna Files
+Example antenna configuration files are included in the `antennas/` folder.
+
+### 5. Python Dependencies
+```bash
+pip install -r requirements.txt
+```
+Key packages: `ray`, `gymnasium`.
+
+---
+
+## Running the Application
+
+### Step 1 — Configure paths
+Update the constants at the top of `Environment_logic.py` to match your GRASS GIS setup and file paths:
+```python
+GISBASE        = '/usr/lib/grass78'
+GISDBASE       = '/home/your_user/grassdata'
+AGENTS_CSV     = '/home/your_user/raplat/agents.csv'
+...
+```
+
+### Step 2 — Run training
+```bash
+python FYP.py
+```
+
+This restores from the latest checkpoint and continues training. To start fresh, remove the `trainer.restore(...)` line in `FYP.py`.
+
+### Step 3 — Raplat command reference
+The environment internally calls Raplat after each step. The equivalent manual command is:
 ```bash
 r.raplat csv_file=~/raplat/agents.csv \
          dem_map=n34_e036_1arc_v3@PERMANENT \
@@ -61,32 +102,41 @@ r.raplat csv_file=~/raplat/agents.csv \
          rx_threshold=-80 --o
 ```
 
-- `csv_file`: Path to the input CSV file containing agent data.
-- `dem_map`: Digital Elevation Model map for terrain elevation.
-- `antmap_file`: Path to the antenna configuration file.
-- `clutter_map`: Map representing land use and obstacles.
-- `out_map`: Name of the output map.
-- `db_driver`: Database driver for output storage.
-- `out_table`: Name of the output table.
-- `rx_threshold`: Minimum allowed received power (in dBm).
+| Parameter | Description |
+|-----------|-------------|
+| `csv_file` | Input CSV containing agent/antenna data |
+| `dem_map` | Digital Elevation Model map |
+| `antmap_file` | Antenna configuration file |
+| `clutter_map` | Land use and obstacles map |
+| `out_map` | Output coverage map name |
+| `rx_threshold` | Minimum received power in dBm |
 
-Make sure to adjust the paths and parameters as needed for your specific setup.
+---
 
-The core logic and environment setup for the multi-agent reinforcement learning system are implemented in the `environment_logic.py` file. This script defines the environment, agents, and their interactions. To run the application, execute the `FYP.py` file, which serves as the main entry point and includes the necessary configuration.
+## Results
 
-Before running the application, ensure all dependencies are properly installed and configured. This includes setting up the required maps (DEM, Population, and Clutter) and verifying the availability of necessary files like `cells.csv`. For additional details, refer to the Raplat documentation.
+![Training Results](<images/Results.png>)
 
+---
 
-## Note 
+## Project Structure
 
-Due to the high complexity of this project some logic might be confusing and there might exist some areas of improvement. 
-I am open to helping you solve any issue you might face while using this code.
+```
+├── Environment_logic.py   # Gymnasium multi-agent environment (Planner class)
+├── FYP.py                 # Training entry point — PPO config and policy mapping
+├── requirements.txt       # Python dependencies
+├── antennas/              # Antenna diagram files
+└── images/                # Maps and result visualizations
+```
+
+---
+
+## Note
+
+Due to the high complexity of this project, some logic may be difficult to follow and there may be areas for improvement. Feel free to open an issue if you encounter any problems.
+
+---
 
 ## Keywords
-- Multi-Agent Reinforcement Learning
-- Telecommunications
-- Radio Frequency Planning
-- Reinforcement Learning (RL)
-- AI
-- Radio Network Optimization
-- Open-Source RF Planner
+
+Multi-Agent Reinforcement Learning · Telecommunications · Radio Frequency Planning · LTE · Radio Network Optimization · Open-Source RF Planner

@@ -1,14 +1,43 @@
-import gymnasium 
-import numpy as np
-import copy
-from gymnasium import spaces
-from gymnasium.spaces import Discrete,Tuple,MultiDiscrete
-import random
+import os
 import csv
-from grass.script import core as grass
-import pandas as pd
+import copy
+import time
+import random
 import bisect
+import subprocess
+
+import numpy as np
+import pandas as pd
+import gymnasium
+from gymnasium import spaces
+from gymnasium.spaces import Discrete, Tuple, MultiDiscrete
+from grass.script import core as grass
+import grass.script.setup as gsetup
+from PIL import Image
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
+
+# ── GRASS GIS configuration ───────────────────────────────────────────────────
+GISBASE        = '/usr/lib/grass78'
+GISDBASE       = '/home/master/grassdata'
+GRASS_LOCATION = 'New'
+GRASS_MAPSET   = 'Project1'
+
+# ── File paths ────────────────────────────────────────────────────────────────
+AGENTS_CSV      = '/home/master/raplat/agents.csv'
+ANTENNA_MAP     = '/home/master/raplat/antenna_diagrams/antennamap.csv'
+DEM_MAP         = 'n34_e036_1arc_v3@PERMANENT'
+CLUTTER_MAP     = 'loss@PERMANENT'
+POPULATION_MAP  = 'lbn_general_2020@Project1'
+POPULATION_PATH = '/home/master/grassdata/New/population'
+COVERAGE_PATH   = '/home/master/grassdata/New/coverage'
+
+# ── Visualization paths (WSL ↔ Windows) ──────────────────────────────────────
+VIZ_COVERAGE_WSL   = '/mnt/c/Users/owner/Desktop/temp_coverage_map.png'
+VIZ_COVERAGE_WIN   = r'C:\Users\owner\Desktop\temp_coverage_map.png'
+VIZ_POPULATION_WSL = '/mnt/c/Users/owner/Desktop/temp_population_map.png'
+VIZ_POPULATION_WIN = r'C:\Users\owner\Desktop\temp_population_map.png'
+VIZ_COMBINED_WSL   = '/mnt/c/Users/owner/Desktop/temp_combined_map.png'
+VIZ_COMBINED_WIN   = r'C:\Users\owner\Desktop\temp_combined_map.png'
 
 class Planner(MultiAgentEnv):
     """Custom Environment that follows gym interface."""
@@ -66,25 +95,15 @@ class Planner(MultiAgentEnv):
                       }
         
         
-        # Here we will call the raplat command to calculate the new coverage after action update
-        # Set the GISBASE environment variable to the path of your GRASS GIS installation
-        gisbase = '/usr/lib/grass78'
-        # Set the GISDBASE environment variable to the location of your GRASS GIS database
-        gisdbase = '/home/master/grassdata'
-        # Set the location and mapset
-        location = 'New'
-        mapset = 'Project1'
-        # Initialize the GRASS GIS environment
-        import grass.script.setup as gsetup
-        self.grass=grass
-        gsetup.init(gisbase, gisdbase, location, mapset)
-        grass.run_command('g.region',e=self.east , w=self.west, n=self.north, s=self.south)
-        grass.run_command('r.out.xyz',input="lbn_general_2020@Project1",output='/home/master/grassdata/New/population',separator=',',overwrite=True) #population of the entire region
-        grass.run_command('g.remove',type="raster" , pattern="agent*", flags='f')
-        grass.run_command('g.remove',type="raster" , pattern="_*",flags='f')
+        # Initialize GRASS GIS environment
+        self.grass = grass
+        gsetup.init(GISBASE, GISDBASE, GRASS_LOCATION, GRASS_MAPSET)
+        grass.run_command('g.region', e=self.east, w=self.west, n=self.north, s=self.south)
+        grass.run_command('r.out.xyz', input=POPULATION_MAP, output=POPULATION_PATH, separator=',', overwrite=True)
+        grass.run_command('g.remove', type="raster", pattern="agent*", flags='f')
+        grass.run_command('g.remove', type="raster", pattern="_*", flags='f')
 
-        csv2 = '/home/master/grassdata/New/population'  
-        self.df2 = pd.read_csv(csv2, header=None)
+        self.df2 = pd.read_csv(POPULATION_PATH, header=None)
         
 
     def step(self, action):
@@ -97,7 +116,7 @@ class Planner(MultiAgentEnv):
         self.steps+=1
         self.iter+=1
         observation=copy.deepcopy(self.observation)
-        with open('/home/master/raplat/agents.csv', 'r+') as csvfile:
+        with open(AGENTS_CSV, 'r+') as csvfile:
             reader = csv.reader(csvfile)
             data = list(reader)
             i=1
@@ -171,8 +190,13 @@ class Planner(MultiAgentEnv):
         #After all the updates according to actions, we run the r.raplat script and get new rewards which will be based on the new states
         #the most important thing for rewards is the interference from agent0 and the antenna capacities in normal agents
 
-        raster_info = grass.parse_command('r.raplat',csv_file='/home/master/raplat/agents.csv',antmap_file='/home/master/raplat/antenna_diagrams/antennamap.csv',
-                                          dem_map='n34_e036_1arc_v3@PERMANENT',clutter_map='loss@PERMANENT',out_map='coverage',db_driver='csv',out_table='coverage',rx_threshold='-80',overwrite=True,flags='r')
+        grass.parse_command(
+            'r.raplat',
+            csv_file=AGENTS_CSV, antmap_file=ANTENNA_MAP,
+            dem_map=DEM_MAP, clutter_map=CLUTTER_MAP,
+            out_map='coverage', db_driver='csv', out_table='coverage',
+            rx_threshold='-80', overwrite=True, flags='r',
+        )
         
         '''Here i will calculate the number of users for each antenna and the total coverage by following certain steps:
            -We will calculate the region around the central base station using the formula we said before
@@ -185,10 +209,7 @@ class Planner(MultiAgentEnv):
 
         
 
-        # Load the CSV files into DataFrames
-        csv1 = '/home/master/grassdata/New/coverage'  
-
-        df1 = pd.read_csv(csv1, header=None)
+        df1 = pd.read_csv(COVERAGE_PATH, header=None)
         df1['composite_key'] =(-df1[1]).tolist()
 
         min_x=float('inf')
@@ -741,54 +762,6 @@ class Planner(MultiAgentEnv):
                             observation[agent][8]+=temp_space
                             observation['agent6'][7]-=temp_space
                             
-            elif agent=='agent6':
-                if available_space[agent][0] > 0:
-                    z1=80-interference_points['agent1'][4]-interference_points['agent1'][5]
-                    if z1<0:
-                        temp_interference=interference_points['agent1'][4]
-                        temp_space=available_space[agent][0]
-                        interference_points['agent1'][4]-=available_space[agent][0]
-                        available_space[agent][0]-=interference_points['agent1'][4]
-                        if interference_points['agent1'][4] < 0:
-                            interference_points['agent1'][4]=0
-                            observation['agent1'][8]-=temp_interference
-                            observation[agent][6]+=temp_interference
-                        else :
-                            available_space[agent][0]=0
-                            observation[agent][6]+=temp_space
-                            observation['agent1'][8]-=temp_space
-                    if available_space[agent][0] >0 :
-                        z2=80-interference_points['agent7'][0]-interference_points['agent7'][1]
-                        if z2<0:
-                            temp_interference=interference_points['agent7'][1]
-                            temp_space=available_space[agent][0]
-                            interference_points['agent7'][1]-=available_space[agent][0]
-                            available_space[agent][0]-=interference_points['agent7'][1]
-                            if interference_points['agent7'][1] < 0:
-                                interference_points['agent7'][1]=0
-                                observation['agent7'][7]-=temp_interference
-                                observation[agent][6]+=temp_interference
-                            else :
-                                available_space[agent][0]=0
-                                observation[agent][6]+=temp_space
-                                observation['agent7'][7]-=temp_space
-                                
-                if available_space[agent][1] >0:
-                    z3=80 - interference_points['agent5'][2]
-                    if z3 <0:
-                        temp_interference=interference_points['agent5'][2]
-                        temp_space=available_space[agent][1]
-                        interference_points['agent5'][2]-=available_space[agent][1]
-                        available_space[agent][1]-=interference_points['agent5'][2]
-                        if interference_points['agent5'][2] < 0:
-                            interference_points['agent5'][2]=0
-                            observation['agent5'][8]-=temp_interference
-                            observation[agent][7]+=temp_interference
-                        else :
-                            available_space[agent][1]=0
-                            observation[agent][7]+=temp_space
-                            observation['agent5'][8]-=temp_space
-
             elif agent=='agent7':
                 if available_space[agent][1] > 0:
                     z1=80-interference_points['agent1'][4]-interference_points['agent1'][5]
@@ -911,54 +884,29 @@ class Planner(MultiAgentEnv):
         if self.steps >= 70: #Truncated if the episode is finished abruptly like number of steps excedded
             truncateds["__all__"]=True
             
-        import os
-        import subprocess
-        import time
-        from PIL import Image
+        self._render()
 
-        # Path to save the PNG (WSL and Windows views) for coverage, population, and combined images
-        output_path_coverage_wsl = "/mnt/c/Users/owner/Desktop/temp_coverage_map.png"
-        output_path_coverage_win = "C:\\Users\\owner\\Desktop\\temp_coverage_map.png"
+        return observation, rewards, terminateds, truncateds, {}
 
-        output_path_population_wsl = "/mnt/c/Users/owner/Desktop/temp_population_map.png"
-        output_path_population_win = "C:\\Users\\owner\\Desktop\\temp_population_map.png"
+    def _render(self):
+        """Export coverage + population maps, blend them, and display on the Windows desktop."""
+        self.grass.run_command('r.out.png', input=f'coverage@{GRASS_MAPSET}', output=VIZ_COVERAGE_WSL, overwrite=True)
+        self.grass.run_command('r.out.png', input=POPULATION_MAP, output=VIZ_POPULATION_WSL, overwrite=True)
 
-        output_path_combined_wsl = "/mnt/c/Users/owner/Desktop/temp_combined_map.png"
-        output_path_combined_win = "C:\\Users\\owner\\Desktop\\temp_combined_map.png"
-
-        # Map names
-        map_name_coverage = "coverage@Project1"
-        map_name_population = "lbn_general_2020@Project1"
-
-        # Export the PNG from GRASS
-        self.grass.run_command('r.out.png', input=map_name_coverage, output=output_path_coverage_wsl, overwrite=True)
-        self.grass.run_command('r.out.png', input=map_name_population, output=output_path_population_wsl, overwrite=True)
-
-        # Optional: wait to ensure file is created
         time.sleep(1)
 
-        # Export the combined image (after blending coverage and population maps)
-        coverage_img = Image.open(output_path_coverage_wsl).convert("RGBA")
-        population_img = Image.open(output_path_population_wsl).convert("RGBA")
-        # Assuming you've already created the combined image using Image.blend or similar
-        combined = Image.blend(coverage_img, population_img, alpha=0.5)
-        combined.save(output_path_combined_wsl)  # Save the combined map to the WSL path
+        coverage_img   = Image.open(VIZ_COVERAGE_WSL).convert("RGBA")
+        population_img = Image.open(VIZ_POPULATION_WSL).convert("RGBA")
+        combined       = Image.blend(coverage_img, population_img, alpha=0.5)
+        combined.save(VIZ_COMBINED_WSL)
 
-        # Open the images using Windows default viewer
-
-        if os.path.exists(output_path_combined_wsl):
-            subprocess.run(["cmd.exe", "/c", "start", output_path_combined_win])
+        if os.path.exists(VIZ_COMBINED_WSL):
+            subprocess.run(["cmd.exe", "/c", "start", VIZ_COMBINED_WIN])
             time.sleep(5)
 
-        # Optional: remove the images after viewing
-        os.remove(output_path_coverage_wsl)
-        os.remove(output_path_population_wsl)
-        os.remove(output_path_combined_wsl)
-
-
-        infos={}
-                
-        return observation, rewards, terminateds, truncateds, infos
+        os.remove(VIZ_COVERAGE_WSL)
+        os.remove(VIZ_POPULATION_WSL)
+        os.remove(VIZ_COMBINED_WSL)
 
     def reset(self, seed=None, options=None):
 
@@ -994,7 +942,7 @@ class Planner(MultiAgentEnv):
                       "agent6" : [int(x - 1.7*radius),y-radius,random.randrange(30,180),28,28,28,0,0,0],
                       "agent7" : [int(x - 1.7*radius),y+radius,random.randrange(30,180),28,28,28,0,0,0]
             }
-        with open("/home/master/raplat/agents.csv", 'r+') as csvfile:
+        with open(AGENTS_CSV, 'r+') as csvfile:
             reader = csv.reader(csvfile)
             writer = csv.writer(csvfile)
             data = list(reader)

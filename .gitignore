@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Ray / RLlib
+ray_results/
+~/ray_results/
+
+# GRASS GIS temp files
+*.bak
+
+# Checkpoints (large, track separately)
+algorithm_checkpoint_lstm/
